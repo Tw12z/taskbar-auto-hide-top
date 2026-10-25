@@ -17,6 +17,10 @@ screen, and lets you click the empty space beside a **dock-style** taskbar
 
 Based on the *Taskbar auto-hide when maximized* mod by m417z.
 
+<p align="center">
+  <img src="docs/images/preview.png" alt="The top taskbar hides while a window is maximized and comes back when the mouse is moved to the top edge over the dock">
+</p>
+
 ## Features
 
 - ✅ **Auto-hide for a top taskbar.** Windows 11 only allows auto-hide for a
@@ -76,6 +80,10 @@ The area of the taskbar window that reacts to the mouse. Everything outside
 of it is "click-through": it doesn't cover windows below it, and hovering
 there doesn't reveal the taskbar. All values are in **physical pixels** (at
 150% scaling, 100 pixels are 66 device-independent pixels).
+
+<p align="center">
+  <img src="docs/images/click-through.png" alt="The area around the taskbar buttons is active, the left and right sides are click-through">
+</p>
 
 | Option | What it does |
 | --- | --- |

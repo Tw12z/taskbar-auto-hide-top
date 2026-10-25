@@ -17,6 +17,10 @@ pencerenin kapat düğmesi).
 
 m417z'nin *Taskbar auto-hide when maximized* modunu temel alır.
 
+<p align="center">
+  <img src="docs/images/preview.png" alt="Pencere büyütülünce üstteki görev çubuğu gizlenir, fare üst kenarda dock'un üstüne gelince geri gelir">
+</p>
+
 ## Neden ayrı bir mod?
 
 Windows 11, alt kenar dışındaki her görev çubuğu konumunda otomatik gizlemeyi
@@ -66,6 +70,10 @@ Görev çubuğu penceresinin fareye tepki veren kısmı. Dışında kalan her ye
 "tıklama geçirgendir": altındaki pencereleri örtmez ve üstüne gelmek çubuğu açmaz.
 Tüm değerler **fiziksel piksel** cinsindendir (%150 ölçeklemede 100 piksel, 66
 ölçekli piksele eşittir).
+
+<p align="center">
+  <img src="docs/images/click-through.png" alt="Görev çubuğu düğmelerinin çevresi etkin, sol ve sağ taraflar tıklama geçirgen">
+</p>
 
 | Seçenek | Ne yapar |
 | --- | --- |
