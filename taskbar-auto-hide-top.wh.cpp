@@ -97,6 +97,11 @@ Enable **Debug logging** in Windhawk to see the computed area:
 
 ### Other options
 
+* **Reveal delay** (default 400 ms): the mouse has to rest on the screen edge
+  this long before the auto-hidden taskbar slides in, like the macOS Dock. A
+  quick pass over the edge, for example to click the close button of a window
+  that is snapped next to a top taskbar, doesn't reveal it. Set it to 0 for
+  Windows' default (immediate) behavior.
 * **Apply only to foreground window**: only the active window can hide the
   taskbar.
 * **Excluded programs**: windows of these programs never hide the taskbar.
@@ -183,6 +188,14 @@ Enable **Debug logging** in Windhawk to see the computed area:
   $description: >-
     "Fixed margins" only. Width of the part on the right of the taskbar that is
     click-through.
+- revealDelay: 400
+  $name: Reveal delay (milliseconds)
+  $description: >-
+    How long the mouse has to rest on the screen edge before the auto-hidden
+    taskbar slides in (like the macOS Dock/menu bar). Moving the mouse across
+    the edge quickly, for example to click the close button of a window that is
+    snapped next to the taskbar, doesn't reveal it. 0 = reveal immediately
+    (Windows default). If the taskbar doesn't react at all, set it to 0.
 - foregroundWindowOnly: false
   $name: Apply only to foreground window
   $description: >-
@@ -251,6 +264,7 @@ struct {
     int centeredWidth;
     int marginLeft;
     int marginRight;
+    int revealDelay;
     bool foregroundWindowOnly;
     std::unordered_set<std::wstring> excludedPrograms;
     bool primaryMonitorOnly;
@@ -991,6 +1005,57 @@ using CSecondaryTray__Unhide_t = void(WINAPI*)(void* pThis,
                                                int unhideRequest);
 CSecondaryTray__Unhide_t CSecondaryTray__Unhide_Original;
 
+// Reveal delay: Explorer arms the "unhide" timer (kTrayUITimerUnhide) while the
+// mouse is on the hot edge of an auto-hidden taskbar, and slides the taskbar in
+// on the first tick. Swallowing the ticks until the mouse has rested for
+// revealDelay milliseconds gives the macOS-like "dwell" behavior: a quick pass
+// over the edge, e.g. to click the close button of a snapped window, doesn't
+// reveal the taskbar. The timer keeps ticking as long as Explorer keeps it
+// armed, and Explorer kills it itself once the mouse leaves the edge.
+struct RevealDwell {
+    DWORD start;
+    DWORD last;
+    POINT pt;
+};
+
+std::mutex g_revealDwellMutex;
+std::unordered_map<HWND, RevealDwell> g_revealDwell;
+
+// Returns true if this unhide tick must be swallowed.
+bool ShouldDelayReveal(HWND hWnd) {
+    if (g_settings.revealDelay <= 0) {
+        return false;
+    }
+
+    POINT pt{};
+    GetCursorPos(&pt);
+    DWORD now = GetTickCount();
+
+    std::lock_guard<std::mutex> guard(g_revealDwellMutex);
+
+    auto it = g_revealDwell.find(hWnd);
+    if (it == g_revealDwell.end() || now - it->second.last > 1000 ||
+        abs(pt.x - it->second.pt.x) > 24 || abs(pt.y - it->second.pt.y) > 24) {
+        // The mouse just arrived (or moved away and came back): start waiting.
+        g_revealDwell[hWnd] = {now, now, pt};
+        return true;
+    }
+
+    it->second.last = now;
+
+    if (now - it->second.start >= static_cast<DWORD>(g_settings.revealDelay)) {
+        g_revealDwell.erase(it);
+        return false;
+    }
+
+    return true;
+}
+
+void ForgetRevealDwell(HWND hWnd) {
+    std::lock_guard<std::mutex> guard(g_revealDwellMutex);
+    g_revealDwell.erase(hWnd);
+}
+
 using TrayUI_WndProc_t = LRESULT(WINAPI*)(void* pThis,
                                           HWND hWnd,
                                           UINT Msg,
@@ -1012,6 +1077,11 @@ LRESULT WINAPI TrayUI_WndProc_Hook(void* pThis,
         g_taskbarsKeptShown.erase(
             QueryViaVtableBackwards(pThis, TrayUI_vftable_IInspectable));
         g_taskbarToViewCoordinator.erase(hWnd);
+        ForgetRevealDwell(hWnd);
+    } else if (Msg == WM_TIMER && wParam == kTrayUITimerUnhide) {
+        if (ShouldDelayReveal(hWnd)) {
+            return 0;
+        }
     } else if (Msg == kHandleTrayPrivateSettingMessage) {
         // Prevent auto-hide from being disabled while the mod is loaded.
         if ((DWORD)wParam == 4) {
@@ -1098,6 +1168,11 @@ LRESULT WINAPI CSecondaryTray_v_WndProc_Hook(void* pThis,
         Wh_Log(L"WM_NCDESTROY: %08X", (DWORD)(ULONG_PTR)hWnd);
         g_taskbarsKeptShown.erase(pThis);
         g_taskbarToViewCoordinator.erase(hWnd);
+        ForgetRevealDwell(hWnd);
+    } else if (Msg == WM_TIMER && wParam == kTrayUITimerUnhide) {
+        if (ShouldDelayReveal(hWnd)) {
+            return 0;
+        }
     } else if (Msg == g_updateTaskbarStateRegisteredMsg) {
         void* pCSecondaryTray_ISecondaryTray =
             QueryViaVtable(pThis, CSecondaryTray_vftable_ISecondaryTray);
@@ -2126,6 +2201,8 @@ void LoadSettings() {
     g_settings.centeredWidth = std::max(1, Wh_GetIntSetting(L"centeredWidth"));
     g_settings.marginLeft = std::max(0, Wh_GetIntSetting(L"marginLeft"));
     g_settings.marginRight = std::max(0, Wh_GetIntSetting(L"marginRight"));
+    g_settings.revealDelay =
+        std::clamp(Wh_GetIntSetting(L"revealDelay"), 0, 5000);
 
     // Without ExplorerPatcher, no old taskbar exists on 24H2+, and the mod
     // would silently do nothing. Use the regular taskbar instead.
