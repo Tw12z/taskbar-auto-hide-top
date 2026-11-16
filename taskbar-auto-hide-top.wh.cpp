@@ -50,8 +50,12 @@ touching the top edge of the screen next to the dock reveals the taskbar.
 3. Maximize a window. The taskbar should slide away. Move the mouse to the top
    edge, over the dock, to bring it back.
 
-If you don't have a dock-style taskbar (the taskbar is a full-width bar), set
-**Reveal / click area** to *Full width*.
+For an ordinary full-length taskbar, set **Reveal / click area** to
+*Full length (no clipping)*.
+
+For a left/right taskbar, reveal areas run vertically: left/right padding and
+margins mean top/bottom, and centered width means height. Stored setting names
+are unchanged. This mod does not move the taskbar.
 
 ## Settings
 
@@ -71,26 +75,25 @@ there doesn't reveal the taskbar. All values are in **physical pixels** (at
 | Option | What it does |
 | --- | --- |
 | **Follow the taskbar buttons** (default) | The area is the span from the first to the last taskbar button (Start, apps, tray icons), plus the padding below. It follows the dock when apps are opened/closed. |
-| **Fixed width, centered** | A fixed-width area in the center of the taskbar. |
-| **Fixed margins** | Everything except a fixed margin on the left and on the right of the screen. |
-| **Full width** | No clipping, the original behavior. |
+| **Fixed length, centered** | A centered width for top/bottom taskbars, or height for left/right taskbars. |
+| **Fixed start/end margins** | Click-through space at the left/right or top/bottom ends of the taskbar. |
+| **Full length** | No clipping, the original behavior. |
 
 #### How to tune it for your setup
 
-* **Follow the taskbar buttons**: use *Padding on the left / right*. The padding
+* **Follow the taskbar buttons**: use the start/end padding settings. The padding
   has to be at least as large as the part of your dock that sticks out of the
   button span. 100 is a good start. If you use a mod that magnifies icons (for
   example *Taskbar dock animation*) and the magnified icons are cut off,
   increase it. To reveal the taskbar from a smaller part of the screen edge,
   lower it (20-40).
-* **Fixed width, centered**: measure your dock from its left to its right edge
-  (a screenshot in an image editor works, or the numbers in the log) and enter
-  a slightly larger width. The area stays centered.
-* **Fixed margins**: look at the top corners of your maximized windows. The
+* **Fixed length, centered**: measure your dock along its long axis and enter
+  a slightly larger length. The area stays centered.
+* **Fixed start/end margins**: for a top taskbar, the
   window controls take about 140-150 pixels at 100% scaling (3 buttons of 46
   pixels). Set the *right* margin a bit above that (and the *left* margin to
   whatever is not part of your dock). Don't make the margins so large that the
-  two overlap; then the whole area is ignored and the mod keeps the full width.
+  two overlap; then the whole area is ignored and the mod keeps the full length.
 
 Enable **Debug logging** in Windhawk to see the computed area:
 `Clipping taskbar 00010A2E to x=514..1418`.
@@ -126,7 +129,7 @@ Enable **Debug logging** in Windhawk to see the computed area:
 * **The taskbar opens when I touch the corner of the screen.** The area is too
   wide for your setup. Lower the padding, or use fixed margins.
 * **The dock is cut off at the sides.** The area is too narrow. Increase the
-  padding or the width.
+  padding or the active area length.
 * **After the mod was enabled the taskbar is still always visible.** Maximized
   windows must be on the same monitor as the taskbar; with *Primary monitor
   only* secondary monitors are ignored.
@@ -161,33 +164,33 @@ Enable **Debug logging** in Windhawk to see the computed area:
     doesn't reveal the auto-hidden taskbar. Useful for dock-style taskbars.
   $options:
   - buttons: Follow the taskbar buttons (padding below)
-  - centered: Fixed width, centered
-  - margins: Fixed margins on the left and right of the screen
-  - full: Full width (no clipping)
+  - centered: Fixed length, centered (width or height)
+  - margins: Fixed start/end margins (left/right or top/bottom)
+  - full: Full length (no clipping)
 - paddingLeft: 100
-  $name: Padding on the left (pixels)
+  $name: Padding at start (left or top, pixels)
   $description: >-
-    "Follow the taskbar buttons" only. Extra width to the left of the first
-    taskbar button.
+    "Follow the taskbar buttons" only. Extra space before the first button,
+    along the taskbar's long axis.
 - paddingRight: 100
-  $name: Padding on the right (pixels)
+  $name: Padding at end (right or bottom, pixels)
   $description: >-
-    "Follow the taskbar buttons" only. Extra width to the right of the last
-    taskbar button.
+    "Follow the taskbar buttons" only. Extra space after the last button,
+    along the taskbar's long axis.
 - centeredWidth: 900
-  $name: Width of the centered area (pixels)
+  $name: Centered area length (width or height, pixels)
   $description: >-
-    "Fixed width, centered" only.
+    "Fixed length, centered" only.
 - marginLeft: 500
-  $name: Left margin (pixels)
+  $name: Start margin (left or top, pixels)
   $description: >-
-    "Fixed margins" only. Width of the part on the left of the taskbar that is
-    click-through.
+    "Fixed start/end margins" only. Click-through space before the active
+    area, along the taskbar's long axis.
 - marginRight: 500
-  $name: Right margin (pixels)
+  $name: End margin (right or bottom, pixels)
   $description: >-
-    "Fixed margins" only. Width of the part on the right of the taskbar that is
-    click-through.
+    "Fixed start/end margins" only. Click-through space after the active
+    area, along the taskbar's long axis.
 - revealDelay: 400
   $name: Reveal delay (milliseconds)
   $description: >-
@@ -1845,12 +1848,16 @@ std::mutex g_dockClipThreadMutex;
 HANDLE g_dockClipThread;
 HANDLE g_dockClipStopEvent;
 
-// Horizontal extent of all buttons (start, apps, tray icons) of a taskbar, in
-// screen coordinates.
-bool GetTaskbarButtonsXRange(IUIAutomation* uia,
-                             HWND hWnd,
-                             LONG* left,
-                             LONG* right) {
+struct TaskbarButtonsRange {
+    bool horizontal;
+    std::pair<LONG, LONG> extent;
+};
+
+// Button extent along the taskbar's long axis, in screen coordinates.
+bool GetTaskbarButtonsRange(IUIAutomation* uia,
+                            HWND hWnd,
+                            bool horizontal,
+                            TaskbarButtonsRange* range) {
     winrt::com_ptr<IUIAutomationElement> root;
     if (FAILED(uia->ElementFromHandle(hWnd, root.put())) || !root) {
         return false;
@@ -1879,38 +1886,40 @@ bool GetTaskbarButtonsXRange(IUIAutomation* uia,
     }
 
     bool found = false;
-    LONG minLeft = LONG_MAX;
-    LONG maxRight = LONG_MIN;
+    LONG minStart = LONG_MAX;
+    LONG maxEnd = LONG_MIN;
 
     for (int i = 0; i < count; i++) {
         winrt::com_ptr<IUIAutomationElement> button;
         RECT rect;
         if (FAILED(buttons->GetElement(i, button.put())) || !button ||
-            FAILED(button->get_CurrentBoundingRectangle(&rect)) ||
-            rect.right <= rect.left) {
+            FAILED(button->get_CurrentBoundingRectangle(&rect))) {
             continue;
         }
 
-        minLeft = std::min(minLeft, rect.left);
-        maxRight = std::max(maxRight, rect.right);
+        LONG start = horizontal ? rect.left : rect.top;
+        LONG end = horizontal ? rect.right : rect.bottom;
+        if (end <= start) {
+            continue;
+        }
+
+        minStart = std::min(minStart, start);
+        maxEnd = std::max(maxEnd, end);
         found = true;
     }
 
     if (found) {
-        *left = minLeft;
-        *right = maxRight;
+        *range = {horizontal, {minStart, maxEnd}};
     }
 
     return found;
 }
 
-bool IsTaskbarOnScreen(HWND hWnd) {
-    RECT windowRect;
+bool IsTaskbarOnScreen(HWND hWnd, const RECT& windowRect) {
     MONITORINFO monitorInfo{
         .cbSize = sizeof(MONITORINFO),
     };
-    if (!GetWindowRect(hWnd, &windowRect) ||
-        !GetMonitorInfo(MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST),
+    if (!GetMonitorInfo(MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST),
                         &monitorInfo)) {
         return true;
     }
@@ -1924,61 +1933,58 @@ bool IsTaskbarOnScreen(HWND hWnd) {
 
 // Computes the part of the taskbar window, in window coordinates, that stays
 // active. Returns false if the whole window should stay active.
-bool ComputeTaskbarActiveRange(int windowWidth,
-                               LONG windowLeft,
+bool ComputeTaskbarActiveRange(int windowLength,
+                               LONG windowStart,
                                const std::pair<LONG, LONG>* buttonsRange,
-                               int* regionLeft,
-                               int* regionRight) {
+                               int* regionStart,
+                               int* regionEnd) {
     switch (g_settings.hoverArea) {
         case HoverArea::buttons:
             if (!buttonsRange) {
                 return false;
             }
 
-            *regionLeft =
-                buttonsRange->first - g_settings.paddingLeft - windowLeft;
-            *regionRight =
-                buttonsRange->second + g_settings.paddingRight - windowLeft;
+            *regionStart =
+                buttonsRange->first - g_settings.paddingLeft - windowStart;
+            *regionEnd =
+                buttonsRange->second + g_settings.paddingRight - windowStart;
             break;
 
         case HoverArea::centered:
-            *regionLeft = (windowWidth - g_settings.centeredWidth) / 2;
-            *regionRight = *regionLeft + g_settings.centeredWidth;
+            *regionStart = (windowLength - g_settings.centeredWidth) / 2;
+            *regionEnd = *regionStart + g_settings.centeredWidth;
             break;
 
         case HoverArea::margins:
-            *regionLeft = g_settings.marginLeft;
-            *regionRight = windowWidth - g_settings.marginRight;
+            *regionStart = g_settings.marginLeft;
+            *regionEnd = windowLength - g_settings.marginRight;
             break;
 
         default:
             return false;
     }
 
-    *regionLeft = std::max(*regionLeft, 0);
-    *regionRight = std::min(*regionRight, windowWidth);
-    return *regionRight > *regionLeft;
+    *regionStart = std::max(*regionStart, 0);
+    *regionEnd = std::min(*regionEnd, windowLength);
+    return *regionEnd > *regionStart;
 }
 
 // Limits the taskbar window to the active range, so the empty space beside the
 // dock neither covers the windows behind it nor reacts to the mouse.
 void UpdateTaskbarRegion(HWND hWnd,
+                         const RECT& windowRect,
+                         bool horizontal,
                          const std::pair<LONG, LONG>* buttonsRange,
                          std::unordered_set<HWND>& clippedWindows) {
-    RECT windowRect;
-    if (!GetWindowRect(hWnd, &windowRect)) {
-        return;
-    }
-
     int width = windowRect.right - windowRect.left;
     int height = windowRect.bottom - windowRect.top;
 
-    int regionLeft, regionRight;
-
-    // A vertical taskbar (left/right edge) isn't clipped.
-    bool clip = width > height && height > 0 &&
-                ComputeTaskbarActiveRange(width, windowRect.left, buttonsRange,
-                                          &regionLeft, &regionRight);
+    int regionStart, regionEnd;
+    bool clip = width > 0 && height > 0 &&
+                ComputeTaskbarActiveRange(horizontal ? width : height,
+                                          horizontal ? windowRect.left
+                                                     : windowRect.top,
+                                          buttonsRange, &regionStart, &regionEnd);
     if (!clip) {
         if (clippedWindows.erase(hWnd)) {
             SetWindowRgn(hWnd, nullptr, TRUE);
@@ -1986,6 +1992,8 @@ void UpdateTaskbarRegion(HWND hWnd,
 
         return;
     }
+    RECT activeRect = horizontal ? RECT{regionStart, 0, regionEnd, height}
+                                 : RECT{0, regionStart, width, regionEnd};
 
     HRGN currentRegion = CreateRectRgn(0, 0, 0, 0);
     bool unchanged = false;
@@ -1993,8 +2001,7 @@ void UpdateTaskbarRegion(HWND hWnd,
         RECT box;
         if (GetWindowRgn(hWnd, currentRegion) == SIMPLEREGION &&
             GetRgnBox(currentRegion, &box) != ERROR) {
-            unchanged = box.left == regionLeft && box.right == regionRight &&
-                        box.top == 0 && box.bottom == height;
+            unchanged = EqualRect(&box, &activeRect);
         }
 
         DeleteObject(currentRegion);
@@ -2005,11 +2012,11 @@ void UpdateTaskbarRegion(HWND hWnd,
         return;
     }
 
-    Wh_Log(L"Clipping taskbar %08X to x=%d..%d", (DWORD)(DWORD_PTR)hWnd,
-           regionLeft, regionRight);
+    Wh_Log(L"Clipping taskbar %08X to %s=%d..%d", (DWORD)(DWORD_PTR)hWnd,
+           horizontal ? L"x" : L"y", regionStart, regionEnd);
 
     // The system owns the region after a successful call.
-    HRGN region = CreateRectRgn(regionLeft, 0, regionRight, height);
+    HRGN region = CreateRectRgnIndirect(&activeRect);
     if (region) {
         if (SetWindowRgn(hWnd, region, TRUE)) {
             clippedWindows.insert(hWnd);
@@ -2065,7 +2072,7 @@ DWORD WINAPI DockClipThread(LPVOID lpThreadParameter) {
     if (!uiaRequired || uia) {
         // Remembered because the buttons can't be queried reliably while the
         // taskbar is slid out of the screen.
-        std::unordered_map<HWND, std::pair<LONG, LONG>> lastRanges;
+        std::unordered_map<HWND, TaskbarButtonsRange> lastRanges;
         std::unordered_set<HWND> clippedWindows;
 
         DWORD waitMs;
@@ -2073,22 +2080,35 @@ DWORD WINAPI DockClipThread(LPVOID lpThreadParameter) {
             bool anyTaskbarOnScreen = false;
 
             for (HWND hWnd : GetAllTaskbarWindows()) {
-                bool onScreen = IsTaskbarOnScreen(hWnd);
+                RECT windowRect;
+                if (!GetWindowRect(hWnd, &windowRect)) {
+                    continue;
+                }
+                bool horizontal = windowRect.right - windowRect.left >=
+                                  windowRect.bottom - windowRect.top;
+                auto cached = lastRanges.find(hWnd);
+                if (cached != lastRanges.end() &&
+                    cached->second.horizontal != horizontal) {
+                    lastRanges.erase(cached);
+                }
+
+                bool onScreen = IsTaskbarOnScreen(hWnd, windowRect);
                 anyTaskbarOnScreen = anyTaskbarOnScreen || onScreen;
 
                 // Query the buttons while the taskbar is visible (that's when
                 // they can change), and once at startup.
                 if (uia && (onScreen || !lastRanges.contains(hWnd))) {
-                    LONG left, right;
-                    if (GetTaskbarButtonsXRange(uia.get(), hWnd, &left,
-                                                &right)) {
-                        lastRanges[hWnd] = {left, right};
+                    TaskbarButtonsRange range;
+                    if (GetTaskbarButtonsRange(uia.get(), hWnd, horizontal,
+                                               &range)) {
+                        lastRanges[hWnd] = range;
                     }
                 }
 
                 auto it = lastRanges.find(hWnd);
                 UpdateTaskbarRegion(
-                    hWnd, it != lastRanges.end() ? &it->second : nullptr,
+                    hWnd, windowRect, horizontal,
+                    it != lastRanges.end() ? &it->second.extent : nullptr,
                     clippedWindows);
             }
 
