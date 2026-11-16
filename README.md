@@ -29,7 +29,7 @@ Based on the *Taskbar auto-hide when maximized* mod by m417z.
   doesn't cover the minimize / maximize / close buttons of the window below, and
   doesn't reveal the taskbar when you touch it.
 - 🎯 **Adjustable reveal area.** Follow the taskbar buttons automatically, or use
-  a fixed width or fixed margins for your own layout.
+  a fixed length or fixed start/end margins, horizontally or vertically.
 - 🔄 **Less tied to one Windows build.** The internal check that blocks auto-hide
   is located at run time instead of by a build-specific name.
 - ⚙️ Everything from the original mod stays: modes, excluded programs, foreground
@@ -60,11 +60,13 @@ touching the top edge of the screen next to the dock reveals the taskbar.
 1. **Disable the original** *Taskbar auto-hide when maximized* mod. Both mods
    hook the same functions and must not run at the same time.
 2. Install and enable this mod.
-3. Maximize a window. The taskbar should slide away. Move the mouse to the top
-   edge, over the dock, to bring it back.
+3. Maximize a window. The taskbar should slide away. Move the mouse to the
+   edge where the taskbar is docked, over its active area, to bring it back.
 
-If you don't have a dock-style taskbar (the taskbar is a full-width bar), set
-**Reveal / click area** to *Full width*.
+The mod does not change taskbar position. Use Windows taskbar settings to
+choose top, bottom, left or right; available positions depend on the OS build.
+For an ordinary full-length taskbar, set **Reveal / click area** to
+*Full length (no clipping)*. This also avoids running the UI Automation worker.
 
 ## Settings
 
@@ -88,26 +90,29 @@ there doesn't reveal the taskbar. All values are in **physical pixels** (at
 | Option | What it does |
 | --- | --- |
 | **Follow the taskbar buttons** (default) | The area is the span from the first to the last taskbar button (Start, apps, tray icons), plus the padding below. It follows the dock when apps are opened/closed. |
-| **Fixed width, centered** | A fixed-width area in the center of the taskbar. |
-| **Fixed margins** | Everything except a fixed margin on the left and on the right of the screen. |
-| **Full width** | No clipping, the original behavior. |
+| **Fixed length, centered** | A centered area: width for top/bottom, height for left/right. |
+| **Fixed start/end margins** | Click-through space at the left/right ends of horizontal taskbars, or top/bottom ends of vertical taskbars. |
+| **Full length** | No clipping, the original behavior. |
+
+Existing stored setting names are unchanged: `paddingLeft`/`marginLeft` mean
+the start (left or top), `paddingRight`/`marginRight` mean the end (right or
+bottom), and `centeredWidth` is the active length along the taskbar.
 
 #### How to tune it for your setup
 
-* **Follow the taskbar buttons**: use *Padding on the left / right*. The padding
+* **Follow the taskbar buttons**: use the start/end padding settings. The padding
   has to be at least as large as the part of your dock that sticks out of the
   button span. 100 is a good start. If you use a mod that magnifies icons (for
   example *Taskbar dock animation*) and the magnified icons are cut off,
   increase it. To reveal the taskbar from a smaller part of the screen edge,
   lower it (20-40).
-* **Fixed width, centered**: measure your dock from its left to its right edge
-  (a screenshot in an image editor works, or the numbers in the log) and enter
-  a slightly larger width. The area stays centered.
-* **Fixed margins**: look at the top corners of your maximized windows. The
+* **Fixed length, centered**: measure your dock along its long axis and enter
+  a slightly larger length. The area stays centered.
+* **Fixed start/end margins**: for a top taskbar, the
   window controls take about 140-150 pixels at 100% scaling (3 buttons of 46
   pixels). Set the *right* margin a bit above that (and the *left* margin to
   whatever is not part of your dock). Don't make the margins so large that the
-  two overlap; then the whole area is ignored and the mod keeps the full width.
+  two overlap; then the whole area is ignored and the mod keeps the full length.
 
 Enable **Debug logging** in Windhawk to see the computed area:
 `Clipping taskbar 00010A2E to x=514..1418`.
